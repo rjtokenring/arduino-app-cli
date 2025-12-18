@@ -326,8 +326,8 @@ func generateMainComposeFile(
 	if err = validateDevices(devices, requiredDeviceClasses); err != nil {
 		return fmt.Errorf("missing required device: %w", err)
 	}
-	if len(devices.additionalDeviceVolumes) > 0 {
-		for _, devVolume := range devices.additionalDeviceVolumes {
+	if len(devices.deviceVolumes) > 0 {
+		for _, devVolume := range devices.deviceVolumes {
 			volumes = append(volumes, volume{
 				Type:   "bind",
 				Source: devVolume,
