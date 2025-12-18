@@ -1043,10 +1043,12 @@ func getCurrentUser() string {
 }
 
 type deviceResult struct {
-	devicePaths    []string
-	hasVideoDevice bool
-	hasSoundDevice bool
-	hasGPUDevice   bool
+	devicePaths             []string
+	deviceCgroupRules       []string
+	additionalDeviceVolumes []string
+	hasVideoDevice          bool
+	hasSoundDevice          bool
+	hasGPUDevice            bool
 }
 
 func getDevices() (*deviceResult, error) {
@@ -1066,10 +1068,18 @@ func getDevices() (*deviceResult, error) {
 	}
 	// Verify if there are real video devices (cameras) in /dev/v4l/by-id
 	if camDevices := getVideoDevices(); len(camDevices) > 0 {
+		res.deviceCgroupRules = append(res.deviceCgroupRules, "c 81:* rwm") // rule for V4L devices
+		if paths.New("/dev/v4l").Exist() {
+			res.additionalDeviceVolumes = append(res.additionalDeviceVolumes, "/dev/v4l")
+		}
 		res.hasVideoDevice = true
 	}
 	// Verify if there are real sound devices in /dev/snd/by-id
 	if sndDev := getSoundDevices(); len(sndDev) > 0 {
+		res.deviceCgroupRules = append(res.deviceCgroupRules, "c 116:* rwm") // rule for ALSA devices
+		if paths.New("/dev/snd").Exist() {
+			res.additionalDeviceVolumes = append(res.additionalDeviceVolumes, "/dev/snd")
+		}
 		res.hasSoundDevice = true
 	}
 	// Verify if we need to add GPU devices
