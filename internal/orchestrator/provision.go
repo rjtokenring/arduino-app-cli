@@ -55,18 +55,19 @@ type logging struct {
 }
 
 type service struct {
-	Image       string                        `yaml:"image"`
-	DependsOn   map[string]dependsOnCondition `yaml:"depends_on,omitempty"`
-	Volumes     []volume                      `yaml:"volumes"`
-	Devices     []string                      `yaml:"devices"`
-	Ports       []string                      `yaml:"ports"`
-	User        string                        `yaml:"user"`
-	GroupAdd    []string                      `yaml:"group_add"`
-	Entrypoint  string                        `yaml:"entrypoint"`
-	ExtraHosts  []string                      `yaml:"extra_hosts,omitempty"`
-	Labels      map[string]string             `yaml:"labels,omitempty"`
-	Environment map[string]string             `yaml:"environment,omitempty"`
-	Logging     *logging                      `yaml:"logging,omitempty"`
+	Image             string                        `yaml:"image"`
+	DependsOn         map[string]dependsOnCondition `yaml:"depends_on,omitempty"`
+	Volumes           []volume                      `yaml:"volumes"`
+	Devices           []string                      `yaml:"devices"`
+	DeviceCgroupRules []string                      `yaml:"device_cgroup_rules,omitempty"`
+	Ports             []string                      `yaml:"ports"`
+	User              string                        `yaml:"user"`
+	GroupAdd          []string                      `yaml:"group_add"`
+	Entrypoint        string                        `yaml:"entrypoint"`
+	ExtraHosts        []string                      `yaml:"extra_hosts,omitempty"`
+	Labels            map[string]string             `yaml:"labels,omitempty"`
+	Environment       map[string]string             `yaml:"environment,omitempty"`
+	Logging           *logging                      `yaml:"logging,omitempty"`
 }
 
 type Provision struct {
@@ -336,12 +337,12 @@ func generateMainComposeFile(
 		}
 	}
 	if devices.hasSoundDevice {
-		// If we are adding sound devices, mount also /dev/snd/by-id if it exists to allow access to by-id links
-		if paths.New("/dev/snd/by-id").Exist() {
+		// If we are adding sound devices, mount also /dev/snd if it exists to allow access to by-id links
+		if paths.New("/dev/snd").Exist() {
 			volumes = append(volumes, volume{
 				Type:   "bind",
-				Source: "/dev/snd/by-id",
-				Target: "/dev/snd/by-id",
+				Source: "/dev/snd",
+				Target: "/dev/snd",
 			})
 		}
 	}
@@ -368,10 +369,14 @@ func generateMainComposeFile(
 
 	mainAppCompose.Services = &mainService{
 		Main: service{
-			Image:      pythonImage,
-			Volumes:    volumes,
-			Ports:      slices.Collect(maps.Keys(ports)),
-			Devices:    devices.devicePaths,
+			Image:   pythonImage,
+			Volumes: volumes,
+			Ports:   slices.Collect(maps.Keys(ports)),
+			Devices: devices.devicePaths,
+			DeviceCgroupRules: []string{
+				"c 81:* rwm",  // rule for V4L
+				"c 116:* rwm", // rule for ALSA devices
+			},
 			Entrypoint: "/run.sh",
 			DependsOn:  dependsOn,
 			User:       getCurrentUser(),

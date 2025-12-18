@@ -1060,8 +1060,6 @@ func getDevices() (*deviceResult, error) {
 
 	for _, p := range deviceList {
 		switch {
-		case p.HasPrefix("video"):
-			res.devicePaths = append(res.devicePaths, p.String())
 		case p.HasPrefix("dri"):
 			res.hasGPUDevice = true
 		}
@@ -1072,7 +1070,6 @@ func getDevices() (*deviceResult, error) {
 	}
 	// Verify if there are real sound devices in /dev/snd/by-id
 	if sndDev := getSoundDevices(); len(sndDev) > 0 {
-		res.devicePaths = append(res.devicePaths, "/dev/snd")
 		res.hasSoundDevice = true
 	}
 	// Verify if we need to add GPU devices
