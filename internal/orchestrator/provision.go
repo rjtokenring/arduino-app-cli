@@ -358,19 +358,16 @@ func generateMainComposeFile(
 
 	mainAppCompose.Services = &mainService{
 		Main: service{
-			Image:   pythonImage,
-			Volumes: volumes,
-			Ports:   slices.Collect(maps.Keys(ports)),
-			Devices: devices.devicePaths,
-			DeviceCgroupRules: []string{
-				"c 81:* rwm",  // rule for V4L
-				"c 116:* rwm", // rule for ALSA devices
-			},
-			Entrypoint: "/run.sh",
-			DependsOn:  dependsOn,
-			User:       getCurrentUser(),
-			GroupAdd:   append(groups, "gpiod"),
-			ExtraHosts: []string{"msgpack-rpc-router:host-gateway"},
+			Image:             pythonImage,
+			Volumes:           volumes,
+			Ports:             slices.Collect(maps.Keys(ports)),
+			Devices:           devices.devicePaths,
+			DeviceCgroupRules: devices.deviceCgroupRules,
+			Entrypoint:        "/run.sh",
+			DependsOn:         dependsOn,
+			User:              getCurrentUser(),
+			GroupAdd:          append(groups, "gpiod"),
+			ExtraHosts:        []string{"msgpack-rpc-router:host-gateway"},
 			Labels: map[string]string{
 				DockerAppLabel:     "true",
 				DockerAppMainLabel: "true",
