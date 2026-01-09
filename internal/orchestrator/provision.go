@@ -19,10 +19,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"os"
 	"os/user"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -203,6 +205,76 @@ func pullBasePythonContainer(ctx context.Context, pythonImage string) error {
 	return process.RunWithinContext(ctx)
 }
 
+type customBrickDefintion struct {
+	Path            string
+	ComposeFilePath string
+	Brick           bricksindex.Brick
+}
+
+func provisionCustomApplicationBricks(app *app.ArduinoApp) (map[string]customBrickDefintion, error) {
+	matches := make(map[string]customBrickDefintion, 0)
+
+	// Search for custom bricks in the applicatio context
+	codeToScan := filepath.Join(app.FullPath.String(), "python")
+	if !paths.New(codeToScan).Exist() {
+		return matches, nil
+	}
+
+	if err := filepath.WalkDir(codeToScan, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		// Skip common large/noisy directories
+		if d.IsDir() {
+			// Optionally skip symlinked directories
+			if info, err := d.Info(); err == nil && info.Mode()&os.ModeSymlink != 0 {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Check for the brick_config.yaml file
+		if d.Name() == "brick_config.yaml" {
+			path = filepath.Join(codeToScan, path)
+			// Load brick config definition
+			slog.Info("Found custom brick definition", slog.String("path", path))
+
+			brickDefinitionContent, err := os.ReadFile(path)
+			if err != nil {
+				slog.Error("Failed to read custom brick definition", slog.String("path", path), slog.Any("error", err))
+				return nil
+			}
+			customBrick := bricksindex.Brick{}
+			if err := yaml.Unmarshal(brickDefinitionContent, &customBrick); err != nil {
+				slog.Error("Failed to load custom brick definition", slog.String("path", path), slog.Any("error", err))
+				return nil
+			}
+
+			// Check if Brick also requires a container
+			customBrickDirectory := paths.New(path).Parent()
+			composeFilePath := filepath.Join(customBrickDirectory.String(), "brick_compose.yaml")
+			if paths.New(composeFilePath).Exist() {
+				customBrick.RequireContainer = true
+			}
+
+			matches[customBrick.ID] = customBrickDefintion{
+				Path:            customBrickDirectory.String(),
+				ComposeFilePath: composeFilePath,
+				Brick:           customBrick,
+			}
+
+		}
+
+		return nil
+
+	}); err != nil {
+		return nil, fmt.Errorf("error scanning for custom bricks within %s: %w", codeToScan, err)
+	}
+
+	return matches, nil
+}
+
 const (
 	DockerAppLabel     = "cc.arduino.app"
 	DockerAppMainLabel = "cc.arduino.app.main"
@@ -220,6 +292,13 @@ func generateMainComposeFile(
 ) error {
 	slog.Debug("Generating main compose file for the App")
 
+	// Load custom bricks defined within the application
+	customBricks, err := provisionCustomApplicationBricks(app)
+	if err != nil {
+		slog.Error("Failed to provision custom application bricks", slog.String("app_path", app.FullPath.String()), slog.Any("error", err))
+		customBricks = map[string]customBrickDefintion{}
+	}
+
 	ports := make(map[string]struct{}, len(app.Descriptor.Ports))
 	for _, p := range app.Descriptor.Ports {
 		ports[fmt.Sprintf("%d:%d", p, p)] = struct{}{}
@@ -229,9 +308,17 @@ func generateMainComposeFile(
 	services := make([]serviceInfo, 0, len(app.Descriptor.Bricks))
 	for _, brick := range app.Descriptor.Bricks {
 		idxBrick, found := bricksIndex.FindBrickByID(brick.ID)
+		isCustomBrick := false
 		slog.Debug("Processing brick", slog.String("brick_id", brick.ID), slog.Bool("found", found))
 		if !found {
-			continue
+			// Check if it's a custom brick defined within the application
+			if customBrick, found := customBricks[brick.ID]; found {
+				isCustomBrick = true
+				slog.Info("Using custom brick definition", slog.String("brick_id", brick.ID), slog.String("path", customBrick.Path))
+				idxBrick = &customBrick.Brick
+			} else {
+				continue
+			}
 		}
 
 		// 1. Retrieve ports that we have to expose defined in the brick
@@ -246,10 +333,15 @@ func generateMainComposeFile(
 		}
 
 		// 3. Retrieve the brick_compose.yaml file.
-		composeFilePath, err := staticStore.GetBrickComposeFilePathFromID(brick.ID)
-		if err != nil {
-			slog.Error("brick compose id not valid", slog.String("error", err.Error()), slog.String("brick_id", brick.ID))
-			continue
+		var composeFilePath *paths.Path
+		if isCustomBrick {
+			composeFilePath = paths.New(customBricks[brick.ID].ComposeFilePath)
+		} else {
+			composeFilePath, err = staticStore.GetBrickComposeFilePathFromID(brick.ID)
+			if err != nil {
+				slog.Error("brick compose id not valid", slog.String("error", err.Error()), slog.String("brick_id", brick.ID))
+				continue
+			}
 		}
 
 		// 4. Retrieve the compose services names.
