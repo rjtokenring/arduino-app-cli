@@ -119,6 +119,8 @@ func StartApp(
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
+		// TODO: we need to validate also custom bricks here, code has to be refactored to pass also custom bricks map
+
 		err := checkBricks(appToStart.Descriptor, bricksIndex, modelsIndex)
 		if err != nil {
 			yield(StreamMessage{error: err})

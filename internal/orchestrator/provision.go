@@ -205,14 +205,14 @@ func pullBasePythonContainer(ctx context.Context, pythonImage string) error {
 	return process.RunWithinContext(ctx)
 }
 
-type customBrickDefintion struct {
+type CustomBrickDefintion struct {
 	Path            string
 	ComposeFilePath string
 	Brick           bricksindex.Brick
 }
 
-func provisionCustomApplicationBricks(app *app.ArduinoApp) (map[string]customBrickDefintion, error) {
-	matches := make(map[string]customBrickDefintion, 0)
+func ProvisionCustomApplicationBricks(app *app.ArduinoApp) (map[string]CustomBrickDefintion, error) {
+	matches := make(map[string]CustomBrickDefintion, 0)
 
 	// Search for custom bricks in the applicatio context
 	codeToScan := filepath.Join(app.FullPath.String(), "python")
@@ -236,7 +236,6 @@ func provisionCustomApplicationBricks(app *app.ArduinoApp) (map[string]customBri
 
 		// Check for the brick_config.yaml file
 		if d.Name() == "brick_config.yaml" {
-			path = filepath.Join(codeToScan, path)
 			// Load brick config definition
 			slog.Info("Found custom brick definition", slog.String("path", path))
 
@@ -258,7 +257,7 @@ func provisionCustomApplicationBricks(app *app.ArduinoApp) (map[string]customBri
 				customBrick.RequireContainer = true
 			}
 
-			matches[customBrick.ID] = customBrickDefintion{
+			matches[customBrick.ID] = CustomBrickDefintion{
 				Path:            customBrickDirectory.String(),
 				ComposeFilePath: composeFilePath,
 				Brick:           customBrick,
@@ -293,10 +292,10 @@ func generateMainComposeFile(
 	slog.Debug("Generating main compose file for the App")
 
 	// Load custom bricks defined within the application
-	customBricks, err := provisionCustomApplicationBricks(app)
+	customBricks, err := ProvisionCustomApplicationBricks(app)
 	if err != nil {
 		slog.Error("Failed to provision custom application bricks", slog.String("app_path", app.FullPath.String()), slog.Any("error", err))
-		customBricks = map[string]customBrickDefintion{}
+		customBricks = map[string]CustomBrickDefintion{}
 	}
 
 	ports := make(map[string]struct{}, len(app.Descriptor.Ports))
