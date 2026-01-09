@@ -103,3 +103,36 @@ func Load(dir *paths.Path) (*BricksIndex, error) {
 	defer content.Close()
 	return unmarshalBricksIndex(content)
 }
+
+type CustomBrick struct {
+	Path            string
+	ComposeFilePath string
+	Brick           Brick
+}
+
+type CustomBricksIndex struct {
+	CustomBrick map[string]CustomBrick
+}
+
+func NewCustomBricksIndex() *CustomBricksIndex {
+	return &CustomBricksIndex{
+		CustomBrick: make(map[string]CustomBrick),
+	}
+}
+
+func (c *CustomBricksIndex) AddCustomBrick(brick CustomBrick) {
+	c.CustomBrick[brick.Brick.ID] = brick
+}
+
+func (c *CustomBricksIndex) FindBrickByID(id string) (Brick, bool) {
+	brick, found := c.CustomBrick[id]
+	return brick.Brick, found
+}
+
+func (c *CustomBricksIndex) GetBrickComposeFilePathFromID(id string) (*paths.Path, bool) {
+	brick, found := c.CustomBrick[id]
+	if !found {
+		return nil, false
+	}
+	return paths.New(brick.ComposeFilePath), true
+}

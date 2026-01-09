@@ -205,19 +205,13 @@ func pullBasePythonContainer(ctx context.Context, pythonImage string) error {
 	return process.RunWithinContext(ctx)
 }
 
-type CustomBrickDefintion struct {
-	Path            string
-	ComposeFilePath string
-	Brick           bricksindex.Brick
-}
-
-func ProvisionCustomApplicationBricks(app *app.ArduinoApp) (map[string]CustomBrickDefintion, error) {
-	matches := make(map[string]CustomBrickDefintion, 0)
+func provisionCustomApplicationBricks(app *app.ArduinoApp) (*bricksindex.CustomBricksIndex, error) {
+	customBrickIndex := bricksindex.NewCustomBricksIndex()
 
 	// Search for custom bricks in the applicatio context
 	codeToScan := filepath.Join(app.FullPath.String(), "python")
 	if !paths.New(codeToScan).Exist() {
-		return matches, nil
+		return customBrickIndex, nil
 	}
 
 	if err := filepath.WalkDir(codeToScan, func(path string, d fs.DirEntry, walkErr error) error {
@@ -257,11 +251,11 @@ func ProvisionCustomApplicationBricks(app *app.ArduinoApp) (map[string]CustomBri
 				customBrick.RequireContainer = true
 			}
 
-			matches[customBrick.ID] = CustomBrickDefintion{
+			customBrickIndex.AddCustomBrick(bricksindex.CustomBrick{
 				Path:            customBrickDirectory.String(),
 				ComposeFilePath: composeFilePath,
 				Brick:           customBrick,
-			}
+			})
 
 		}
 
@@ -271,7 +265,7 @@ func ProvisionCustomApplicationBricks(app *app.ArduinoApp) (map[string]CustomBri
 		return nil, fmt.Errorf("error scanning for custom bricks within %s: %w", codeToScan, err)
 	}
 
-	return matches, nil
+	return customBrickIndex, nil
 }
 
 const (
@@ -292,10 +286,10 @@ func generateMainComposeFile(
 	slog.Debug("Generating main compose file for the App")
 
 	// Load custom bricks defined within the application
-	customBricks, err := ProvisionCustomApplicationBricks(app)
+	customBricksIndex, err := provisionCustomApplicationBricks(app)
 	if err != nil {
 		slog.Error("Failed to provision custom application bricks", slog.String("app_path", app.FullPath.String()), slog.Any("error", err))
-		customBricks = map[string]CustomBrickDefintion{}
+		customBricksIndex = bricksindex.NewCustomBricksIndex()
 	}
 
 	ports := make(map[string]struct{}, len(app.Descriptor.Ports))
@@ -311,10 +305,10 @@ func generateMainComposeFile(
 		slog.Debug("Processing brick", slog.String("brick_id", brick.ID), slog.Bool("found", found))
 		if !found {
 			// Check if it's a custom brick defined within the application
-			if customBrick, found := customBricks[brick.ID]; found {
+			if customBrick, found := customBricksIndex.FindBrickByID(brick.ID); found {
 				isCustomBrick = true
-				slog.Info("Using custom brick definition", slog.String("brick_id", brick.ID), slog.String("path", customBrick.Path))
-				idxBrick = &customBrick.Brick
+				idxBrick = &customBrick
+				slog.Info("Using custom brick definition", slog.String("brick_id", brick.ID))
 			} else {
 				continue
 			}
@@ -334,7 +328,9 @@ func generateMainComposeFile(
 		// 3. Retrieve the brick_compose.yaml file.
 		var composeFilePath *paths.Path
 		if isCustomBrick {
-			composeFilePath = paths.New(customBricks[brick.ID].ComposeFilePath)
+			if cstPath, found := customBricksIndex.GetBrickComposeFilePathFromID(brick.ID); found {
+				composeFilePath = cstPath
+			}
 		} else {
 			composeFilePath, err = staticStore.GetBrickComposeFilePathFromID(brick.ID)
 			if err != nil {
