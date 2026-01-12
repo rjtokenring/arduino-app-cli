@@ -205,15 +205,7 @@ func pullBasePythonContainer(ctx context.Context, pythonImage string) error {
 	return process.RunWithinContext(ctx)
 }
 
-func provisionCustomApplicationBricks(app *app.ArduinoApp) (*bricksindex.CustomBricksIndex, error) {
-	customBrickIndex := bricksindex.NewCustomBricksIndex()
-
-	// Search for custom bricks in the applicatio context
-	codeToScan := filepath.Join(app.FullPath.String(), "python")
-	if !paths.New(codeToScan).Exist() {
-		return customBrickIndex, nil
-	}
-
+func loadCustomBricksFromDirectory(codeToScan string, customBrickIndex *bricksindex.CustomBricksIndex) error {
 	if err := filepath.WalkDir(codeToScan, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -262,7 +254,30 @@ func provisionCustomApplicationBricks(app *app.ArduinoApp) (*bricksindex.CustomB
 		return nil
 
 	}); err != nil {
-		return nil, fmt.Errorf("error scanning for custom bricks within %s: %w", codeToScan, err)
+		return fmt.Errorf("error scanning for custom bricks within %s: %w", codeToScan, err)
+	}
+	return nil
+}
+
+func provisionCustomApplicationBricks(app *app.ArduinoApp) (*bricksindex.CustomBricksIndex, error) {
+	customBrickIndex := bricksindex.NewCustomBricksIndex()
+
+	// Search for custom bricks in the application context
+	codeToScan := filepath.Join(app.FullPath.String(), "python")
+	if !paths.New(codeToScan).Exist() {
+		return customBrickIndex, nil
+	}
+
+	if err := loadCustomBricksFromDirectory(codeToScan, customBrickIndex); err != nil {
+		return nil, err
+	}
+
+	// Search for custom bricks in the application context
+	codeToScan = filepath.Join(app.FullPath.String(), "bricks")
+	if paths.New(codeToScan).Exist() {
+		if err := loadCustomBricksFromDirectory(codeToScan, customBrickIndex); err != nil {
+			slog.Error("Failed to load custom bricks from application", slog.String("app_path", app.FullPath.String()), slog.Any("error", err))
+		}
 	}
 
 	return customBrickIndex, nil
