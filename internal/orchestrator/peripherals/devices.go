@@ -172,6 +172,31 @@ func HasVirtualDevice(deviceClass DeviceClass, devices []string) bool {
 	return false
 }
 
+// majorFromProcDevices reads /proc/devices and returns the major number of the first
+// character device whose name contains namePattern (mirrors: grep -E "<pattern>").
+func majorFromProcDevices(namePattern string) (int, bool) {
+	data, err := os.ReadFile("/proc/devices")
+	if err != nil {
+		slog.Warn("unable to read /proc/devices", slog.String("error", err.Error()))
+		return 0, false
+	}
+
+	for line := range strings.SplitSeq(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "Block devices:" {
+			break
+		}
+		fields := strings.Fields(trimmed)
+		if len(fields) == 2 && strings.Contains(fields[1], namePattern) {
+			major, err := strconv.Atoi(fields[0])
+			if err == nil {
+				return major, true
+			}
+		}
+	}
+	return 0, false
+}
+
 func LoadDeviceCGroupsRules() []string {
 
 	rules := []string{}
@@ -181,8 +206,16 @@ func LoadDeviceCGroupsRules() []string {
 	rules = append(rules, "c 116:* rmw") // ALSA
 
 	// Resolve runtime specific devices for Media and DMA, as they don't have a stable major number
-	rules = append(rules, "c 504:* rmw") // Media
-	rules = append(rules, "c 250:* rmw") // DMA
+	if major, ok := majorFromProcDevices("media"); ok {
+		rules = append(rules, fmt.Sprintf("c %d:* rmw", major)) // Media
+	} else {
+		slog.Debug("unable to find Media major number in /proc/devices")
+	}
+	if major, ok := majorFromProcDevices("dma"); ok {
+		rules = append(rules, fmt.Sprintf("c %d:* rmw", major)) // DMA
+	} else {
+		slog.Debug("unable to find DMA major number in /proc/devices")
+	}
 
 	return rules
 }
