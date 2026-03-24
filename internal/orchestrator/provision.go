@@ -44,9 +44,10 @@ import (
 )
 
 type volume struct {
-	Type   string `yaml:"type"`
-	Source string `yaml:"source"`
-	Target string `yaml:"target"`
+	Type     string `yaml:"type"`
+	Source   string `yaml:"source"`
+	Target   string `yaml:"target"`
+	ReadOnly *bool  `yaml:"read_only,omitempty"`
 }
 
 type dependsOnCondition struct {
@@ -59,18 +60,19 @@ type logging struct {
 }
 
 type service struct {
-	Image       string                        `yaml:"image"`
-	DependsOn   map[string]dependsOnCondition `yaml:"depends_on,omitempty"`
-	Volumes     []volume                      `yaml:"volumes"`
-	Devices     []string                      `yaml:"devices"`
-	Ports       []string                      `yaml:"ports"`
-	User        string                        `yaml:"user"`
-	GroupAdd    []uint32                      `yaml:"group_add"`
-	Entrypoint  string                        `yaml:"entrypoint"`
-	ExtraHosts  []string                      `yaml:"extra_hosts,omitempty"`
-	Labels      map[string]string             `yaml:"labels,omitempty"`
-	Environment map[string]string             `yaml:"environment,omitempty"`
-	Logging     *logging                      `yaml:"logging,omitempty"`
+	Image              string                        `yaml:"image"`
+	DependsOn          map[string]dependsOnCondition `yaml:"depends_on,omitempty"`
+	Volumes            []volume                      `yaml:"volumes"`
+	Devices            []string                      `yaml:"devices"`
+	DeviceCGroupsRules []string                      `yaml:"device_cgroup_rules"`
+	Ports              []string                      `yaml:"ports"`
+	User               string                        `yaml:"user"`
+	GroupAdd           []uint32                      `yaml:"group_add"`
+	Entrypoint         string                        `yaml:"entrypoint"`
+	ExtraHosts         []string                      `yaml:"extra_hosts,omitempty"`
+	Labels             map[string]string             `yaml:"labels,omitempty"`
+	Environment        map[string]string             `yaml:"environment,omitempty"`
+	Logging            *logging                      `yaml:"logging,omitempty"`
 }
 
 type Provision struct {
@@ -299,45 +301,7 @@ func generateMainComposeFile(
 	mainAppCompose.Name = composeProjectName
 	mainAppCompose.Include = composeFiles.AsStrings()
 
-	volumes := []volume{
-		{
-			Type:   "bind",
-			Source: app.FullPath.String(),
-			Target: "/app",
-		},
-	}
-	slog.Debug("Adding UNIX socket", slog.Any("sock", cfg.RouterSocketPath().String()), slog.Bool("exists", cfg.RouterSocketPath().Exist()))
-	if cfg.RouterSocketPath().Exist() {
-		volumes = append(volumes, volume{
-			Type:   "bind",
-			Source: cfg.RouterSocketPath().String(),
-			Target: "/var/run/arduino-router.sock",
-		})
-	}
-
-	// provide additional devices to the container
-	if devices.HasVideoDevice {
-		// If we are adding video devices, mount also /dev/v4l if it exists to allow access to by-id/path links
-		if paths.New("/dev/v4l").Exist() {
-			volumes = append(volumes, volume{
-				Type:   "bind",
-				Source: "/dev/v4l",
-				Target: "/dev/v4l",
-			})
-		}
-	}
-	if devices.HasSoundDevice {
-		// If we are adding sound devices, mount also /dev/snd/by-id if it exists to allow access to by-id links
-		if paths.New("/dev/snd/by-id").Exist() {
-			volumes = append(volumes, volume{
-				Type:   "bind",
-				Source: "/dev/snd/by-id",
-				Target: "/dev/snd/by-id",
-			})
-		}
-	}
-
-	volumes = addLedControl(platform, volumes)
+	volumes := loadVolumes(app, cfg, devices, platform)
 	groups := lookupGroups("video", "audio", "render", "dialout")
 
 	// Define depends_on conditions
@@ -358,15 +322,15 @@ func generateMainComposeFile(
 
 	mainAppCompose.Services = &mainService{
 		Main: service{
-			Image:      pythonImage,
-			Volumes:    volumes,
-			Ports:      slices.Collect(maps.Keys(ports)),
-			Devices:    devices.DevicePaths,
-			Entrypoint: "/run.sh",
-			DependsOn:  dependsOn,
-			User:       getCurrentUser(),
-			GroupAdd:   append(groups, lookupGroups("gpiod")...),
-			ExtraHosts: []string{"msgpack-rpc-router:host-gateway"},
+			Image:              pythonImage,
+			Volumes:            volumes,
+			Ports:              slices.Collect(maps.Keys(ports)),
+			Entrypoint:         "/run.sh",
+			DependsOn:          dependsOn,
+			User:               getCurrentUser(),
+			DeviceCGroupsRules: peripherals.LoadDeviceCGroupsRules(),
+			GroupAdd:           append(groups, lookupGroups("gpiod")...),
+			ExtraHosts:         []string{"msgpack-rpc-router:host-gateway"},
 			Labels: map[string]string{
 				DockerAppLabel:     "true",
 				DockerAppMainLabel: "true",
@@ -415,6 +379,43 @@ func generateMainComposeFile(
 
 	// Done!
 	return nil
+}
+
+func loadVolumes(app *app.ArduinoApp, cfg config.Configuration, devices peripherals.AvailableDevices, platform platform.Platform) []volume {
+	volumes := []volume{
+		{
+			Type:   "bind",
+			Source: app.FullPath.String(),
+			Target: "/app",
+		},
+	}
+	slog.Debug("Adding UNIX socket", slog.Any("sock", cfg.RouterSocketPath().String()), slog.Bool("exists", cfg.RouterSocketPath().Exist()))
+	if cfg.RouterSocketPath().Exist() {
+		volumes = append(volumes, volume{
+			Type:   "bind",
+			Source: cfg.RouterSocketPath().String(),
+			Target: "/var/run/arduino-router.sock",
+		})
+	}
+
+	volumes = addLedControl(platform, volumes)
+
+	// Add flat dev/udev
+	volumes = append(volumes, volume{
+		Type:   "bind",
+		Source: "/dev",
+		Target: "/dev",
+	})
+
+	trueVal := true
+	volumes = append(volumes, volume{
+		Type:     "bind",
+		Source:   "/run/udev",
+		Target:   "/run/udev",
+		ReadOnly: &trueVal,
+	})
+
+	return volumes
 }
 
 // Resolve supplementary group IDs on the host dynamically

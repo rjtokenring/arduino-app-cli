@@ -171,3 +171,18 @@ func HasVirtualDevice(deviceClass DeviceClass, devices []string) bool {
 	}
 	return false
 }
+
+func LoadDeviceCGroupsRules() []string {
+
+	rules := []string{}
+
+	// V4l and ALSA have a stable major number, so we can add a rule for all devices of the class
+	rules = append(rules, "c 81:* rmw")  // V4L2
+	rules = append(rules, "c 116:* rmw") // ALSA
+
+	// Resolve runtime specific devices for Media and DMA, as they don't have a stable major number
+	rules = append(rules, "c 504:* rmw") // Media
+	rules = append(rules, "c 250:* rmw") // DMA
+
+	return rules
+}
