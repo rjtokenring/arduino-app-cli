@@ -302,7 +302,9 @@ func generateMainComposeFile(
 	mainAppCompose.Include = composeFiles.AsStrings()
 
 	volumes := loadVolumes(app, cfg, devices, platform)
-	groups := lookupGroups("video", "audio", "render", "dialout")
+	groups := lookupGroups("video", "audio", "render", "dialout", "gpiod")
+	// For MONZA ----------------------------------------------------------
+	groups = append(groups, lookupGroups("fastrpc", "dmaheap")...)
 
 	// Define depends_on conditions
 	// Services with healthcheck will be started only when healthy
@@ -329,7 +331,7 @@ func generateMainComposeFile(
 			DependsOn:          dependsOn,
 			User:               getCurrentUser(),
 			DeviceCGroupsRules: peripherals.LoadDeviceCGroupsRules(),
-			GroupAdd:           append(groups, lookupGroups("gpiod")...),
+			GroupAdd:           groups,
 			ExtraHosts:         []string{"msgpack-rpc-router:host-gateway"},
 			Labels: map[string]string{
 				DockerAppLabel:     "true",
@@ -427,7 +429,10 @@ func lookupGroups(groupNames ...string) []uint32 {
 	for _, name := range groupNames {
 		g, err := user.LookupGroup(name)
 		if err != nil {
-			slog.Warn("group not found on host; skipping", "group", name)
+			var unknownGroupErr user.UnknownGroupError
+			if !errors.As(err, &unknownGroupErr) {
+				slog.Warn("failed to lookup group; skipping", "group", name, "error", err)
+			}
 			continue
 		}
 		gid, err := strconv.ParseUint(g.Gid, 10, 32)

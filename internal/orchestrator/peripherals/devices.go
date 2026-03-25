@@ -217,5 +217,19 @@ func LoadDeviceCGroupsRules() []string {
 		slog.Debug("unable to find DMA major number in /proc/devices")
 	}
 
+	// For MONZA support -------------------------------------------
+	if major, ok := majorFromProcDevices("dma_heap"); ok {
+		rules = append(rules, fmt.Sprintf("c %d:* rmw", major)) // DMA_HEAP
+	} else {
+		slog.Debug("unable to find DMA_HEAP major number in /proc/devices")
+	}
+
+	// For fastrpc devices - major is under misc
+	if major, ok := majorFromProcDevices("misc"); ok {
+		rules = append(rules, fmt.Sprintf("c %d:* rmw", major)) // MISC
+	} else {
+		slog.Debug("unable to find MISC major number in /proc/devices")
+	}
+
 	return rules
 }
