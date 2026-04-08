@@ -83,11 +83,15 @@ func GetSoundDevices() []string {
 	// Check and read /dev/snd. This fs contains only real sound devices
 	soundDevicePath := paths.New("/dev/snd/by-id")
 	if _, err := soundDevicePath.Stat(); err != nil {
-		return nil // no sound device found
+		// TODO: Verify id media carrier is present. In this case, without other devices, there will be no by-id folder.
+		soundDevicePath = paths.New("/dev/snd/by-path")
+		if _, err := soundDevicePath.Stat(); err != nil {
+			return nil // no sound device found
+		}
 	}
 	sndDeviceList, err := soundDevicePath.ReadDir()
 	if err != nil {
-		slog.Warn("unable to list /dev/snd/by-id", slog.String("error", err.Error()))
+		slog.Warn("unable to list /dev/snd/by-id | by-path", slog.String("error", err.Error()))
 		return nil
 	}
 	detectedDevices := []string{}
